@@ -1,12 +1,12 @@
 schema_version = "1.0.0"
-id = "bb_Covert to gaming"
+id = "ConvertToGaming"
 version = "1.0.0"
-name = "BB UVs"
-tagline = "Convert quad model for gaming"
+name = "Convert To Gaming"
+tagline = "Convert To Gaming"
 maintainer = "Blender Bob"
 type = "add-on"
 website = "https://github.com/riouxr/Convert-to-gaming"
-tags = ["Mesh", "UV"]
-blender_version_min = "4.5.0"
+tags = ["Objects"]
+blender_version_min = "4.2.0"
 license = ["SPDX:GPL-3.0-or-later"]
 copyright = ["2025 Robert Rioux"]
