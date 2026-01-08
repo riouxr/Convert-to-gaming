@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BB Convert to Gaming",
     "author": "Blender Bob, Claude.ai",
-    "version": (2, 1, 1),
+    "version": (2, 1, 4),
     "blender": (4, 2, 0),
     "location": "View3D > UI > Tool",
     "description": "Converts high-poly objects to low-poly for gaming",
@@ -386,6 +386,84 @@ def fix_ngons_main():
     print("=== Fix nGones Finished ===")
 
 
+def transfer_uvs_main():
+    """
+    Main function for Transfer UVs operation.
+    
+    Adds Data Transfer modifiers to all objects in High collection,
+    transferring UV data from corresponding Low collection objects.
+    """
+    print("=== Transfer UVs Started ===")
+    
+    # Get High and Low collections
+    high = bpy.data.collections.get(HIGH_COLL)
+    if not high:
+        print(f"ERROR: Collection '{HIGH_COLL}' not found.")
+        return
+    
+    low = bpy.data.collections.get(LOW_COLL)
+    if not low:
+        print(f"ERROR: Collection '{LOW_COLL}' not found. Run 'Convert' first.")
+        return
+    
+    # Create a lookup dictionary for Low collection objects
+    low_objects_dict = {obj.name: obj for obj in low.objects}
+    
+    success_count = 0
+    failed_count = 0
+    
+    for high_obj in high.objects:
+        if high_obj.type != 'MESH':
+            continue
+        
+        # Find corresponding low object
+        # Remove _high suffix and add _low suffix
+        high_name = high_obj.name
+        if high_name.endswith("_high"):
+            base_name = high_name[:-5]  # Remove "_high"
+            low_name = base_name + "_low"
+        else:
+            low_name = high_name + "_low"
+        
+        # Look for the low object
+        low_obj = low_objects_dict.get(low_name)
+        if not low_obj:
+            print(f"WARNING: Could not find matching low object '{low_name}' for '{high_name}'")
+            failed_count += 1
+            continue
+        
+        # Remove existing Data Transfer modifiers
+        for m in list(high_obj.modifiers):
+            if m.type == 'DATA_TRANSFER':
+                remove_modifier_safe(high_obj, m)
+        
+        # Add Data Transfer modifier
+        try:
+            dt = high_obj.modifiers.new(name="DataTransfer", type="DATA_TRANSFER")
+            dt.object = low_obj
+            
+            # Explicitly disable all data types first
+            dt.use_vert_data = False
+            dt.use_edge_data = False
+            dt.use_poly_data = False  # IMPORTANT: Disable Face Data
+            dt.use_loop_data = True   # Enable Face Corner Data only
+            
+            # Set to UV mode for Face Corner Data
+            dt.data_types_loops = {'UV'}
+            
+            # Set mapping to Nearest Face Interpolated (POLYINTERP_NEAREST)
+            dt.loop_mapping = 'POLYINTERP_NEAREST'
+            
+            print(f"Added Data Transfer modifier to '{high_name}' from '{low_name}'")
+            success_count += 1
+        except Exception as e:
+            print(f"Failed to add Data Transfer modifier to '{high_name}': {e}")
+            failed_count += 1
+    
+    print(f"Added Data Transfer modifiers to {success_count} object(s), failed on {failed_count}")
+    print("=== Transfer UVs Finished ===")
+
+
 class AddHighSuffixOperator(bpy.types.Operator):
     """Add _high suffix to all objects in High collection"""
     bl_idname = "object.add_high_suffix"
@@ -422,6 +500,18 @@ class FixNgonsOperator(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class TransferUVsOperator(bpy.types.Operator):
+    """Transfer UV data from Low collection to High collection objects"""
+    bl_idname = "object.transfer_uvs"
+    bl_label = "Transfer UVs"
+    bl_description = "Add Data Transfer modifiers to High collection objects to transfer UVs from Low collection"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        transfer_uvs_main()
+        return {'FINISHED'}
+
+
 class ConvertToGamingPanel(bpy.types.Panel):
     """Panel in the 3D Viewport sidebar for Convert to Gaming addon"""
     bl_label = "BB Convert to Gaming"
@@ -439,6 +529,7 @@ class ConvertToGamingPanel(bpy.types.Panel):
         box.label(text="2. Click 'Convert' to create low-poly versions")
         box.label(text="3. Adjust Decimate Angle Limit if needed")
         box.label(text="4. Click 'Fix nGones' to finalize geometry")
+        box.label(text="5. Click 'Transfer UVs' to copy UVs to High")
         
         layout.separator()
         
@@ -446,6 +537,7 @@ class ConvertToGamingPanel(bpy.types.Panel):
         layout.operator(AddHighSuffixOperator.bl_idname, icon='SORTALPHA')
         layout.operator(ConvertOperator.bl_idname, icon='DUPLICATE')
         layout.operator(FixNgonsOperator.bl_idname, icon='MOD_DECIM')
+        layout.operator(TransferUVsOperator.bl_idname, icon='UV_DATA')
 
 
 def register():
@@ -453,12 +545,14 @@ def register():
     bpy.utils.register_class(AddHighSuffixOperator)
     bpy.utils.register_class(ConvertOperator)
     bpy.utils.register_class(FixNgonsOperator)
+    bpy.utils.register_class(TransferUVsOperator)
     bpy.utils.register_class(ConvertToGamingPanel)
 
 
 def unregister():
     """Unregister addon classes from Blender"""
     bpy.utils.unregister_class(ConvertToGamingPanel)
+    bpy.utils.unregister_class(TransferUVsOperator)
     bpy.utils.unregister_class(FixNgonsOperator)
     bpy.utils.unregister_class(ConvertOperator)
     bpy.utils.unregister_class(AddHighSuffixOperator)

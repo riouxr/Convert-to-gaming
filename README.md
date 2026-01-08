@@ -1,6 +1,14 @@
 # BB Convert to Gaming - Blender Addon
 
-Version 2.1.1 - Updated and optimized by Blender Bob and Claude.ai
+Version 2.1.4 - Updated and optimized by Blender Bob and Claude.ai
+
+## What's New in v2.1.4
+
+### New Features
+- ✅ **Transfer UVs button** - Automatically adds Data Transfer modifiers to High collection objects
+- ✅ Transfers UV data from Low collection objects back to High collection
+- ✅ Uses Nearest Face Interpolated mapping for accurate UV transfer
+- ✅ Matches objects by name (removes _high, adds _low to find corresponding object)
 
 ## What's New in v2.1.1
 
@@ -32,11 +40,11 @@ Version 2.1.1 - Updated and optimized by Blender Bob and Claude.ai
 
 ## Description
 
-Automates the conversion of high-poly 3D models into optimized low-poly versions suitable for gaming.
+Automates the conversion of high-poly 3D models into optimized low-poly versions suitable for gaming, with UV transfer capabilities.
 
 ## Installation
 
-1. Download `BB_Convert_to_Gaming.zip`
+1. Download `BB_Convert_to_Gaming_v2.1.4.zip`
 2. In Blender: Edit → Preferences → Add-ons → Install
 3. Select the downloaded ZIP file
 4. Enable "BB Convert to Gaming" in the addon list
@@ -81,8 +89,17 @@ Automates the conversion of high-poly 3D models into optimized low-poly versions
   - Convert triangles back to quads where possible
   - Add and apply Weighted Normal modifier for better shading
 
+**Step 4: Transfer UVs**
+- Click the **"Transfer UVs"** button
+- This will:
+  - Add Data Transfer modifiers to all objects in the "High" collection
+  - Set the source object to the corresponding "_low" object
+  - Configure Face Corner Data with UV transfer
+  - Use Nearest Face Interpolated mapping for accurate UV projection
+- Use this after unwrapping UVs on your low-poly models to transfer them back to high-poly
+
 ### Result
-You'll have optimized low-poly models in the "Low" collection, ready for export to game engines!
+You'll have optimized low-poly models in the "Low" collection, and can transfer their UVs back to the high-poly originals for baking!
 
 ## Technical Details
 
@@ -96,14 +113,31 @@ You'll have optimized low-poly models in the "Low" collection, ready for export 
 3. **Added**: Planar Decimate (DISSOLVE type)
 4. **Final**: Weighted Normal for improved low-poly shading
 
+### Data Transfer Settings
+- **Face Corner Data**: Enabled (Face Data disabled)
+- **Data Type**: UVs only
+- **Mapping**: Nearest Face Interpolated (POLYINTERP_NEAREST)
+- **Object Matching**: Removes "_high" suffix and adds "_low" to find source object
+
 ### Collection Structure
 ```
 Scene Collection
-├── High (hidden after Convert)
-│   └── [Original high-poly objects]
+├── High (hidden after Convert, receives UV data)
+│   └── [Original high-poly objects with _high suffix]
 └── Low
     └── [Optimized low-poly objects with _low suffix]
 ```
+
+## Typical Workflow for Game Assets
+
+1. Model your high-poly assets and place them in "High" collection
+2. Add "_high" suffix using the button (optional but recommended)
+3. Click "Convert" to create low-poly versions
+4. Adjust decimate settings if needed
+5. Click "Fix nGones" to finalize low-poly geometry
+6. Unwrap UVs on the low-poly models
+7. Click "Transfer UVs" to copy UVs back to high-poly models
+8. Bake textures from high to low using the shared UV layout
 
 ## Requirements
 
