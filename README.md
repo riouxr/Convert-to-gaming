@@ -1,13 +1,5 @@
 # BB Convert to Gaming - Blender Addon
 
-Version 2.1.5 - Updated and optimized by Blender Bob and Claude.ai
-
-## What's New in v2.1.5
-
-### Improvements
-- ✅ **Transfer UVs now applies modifiers** - Automatically applies all Data Transfer modifiers after adding them
-- ✅ UVs are now baked directly into the High collection meshes
-
 ## What's New in v2.1.4
 
 ### New Features
