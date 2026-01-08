@@ -1,6 +1,12 @@
 # BB Convert to Gaming - Blender Addon
 
-Version 2.1.4 - Updated and optimized by Blender Bob and Claude.ai
+Version 2.1.5 - Updated and optimized by Blender Bob and Claude.ai
+
+## What's New in v2.1.5
+
+### Improvements
+- ✅ **Transfer UVs now applies modifiers** - Automatically applies all Data Transfer modifiers after adding them
+- ✅ UVs are now baked directly into the High collection meshes
 
 ## What's New in v2.1.4
 
@@ -44,7 +50,7 @@ Automates the conversion of high-poly 3D models into optimized low-poly versions
 
 ## Installation
 
-1. Download `BB_Convert_to_Gaming_v2.1.4.zip`
+1. Download `BB_Convert_to_Gaming_v2.1.5.zip`
 2. In Blender: Edit → Preferences → Add-ons → Install
 3. Select the downloaded ZIP file
 4. Enable "BB Convert to Gaming" in the addon list
@@ -96,6 +102,7 @@ Automates the conversion of high-poly 3D models into optimized low-poly versions
   - Set the source object to the corresponding "_low" object
   - Configure Face Corner Data with UV transfer
   - Use Nearest Face Interpolated mapping for accurate UV projection
+  - Automatically apply all Data Transfer modifiers to bake the UVs
 - Use this after unwrapping UVs on your low-poly models to transfer them back to high-poly
 
 ### Result

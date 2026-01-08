@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BB Convert to Gaming",
     "author": "Blender Bob, Claude.ai",
-    "version": (2, 1, 4),
+    "version": (2, 1, 5),
     "blender": (4, 2, 0),
     "location": "View3D > UI > Tool",
     "description": "Converts high-poly objects to low-poly for gaming",
@@ -391,7 +391,8 @@ def transfer_uvs_main():
     Main function for Transfer UVs operation.
     
     Adds Data Transfer modifiers to all objects in High collection,
-    transferring UV data from corresponding Low collection objects.
+    transferring UV data from corresponding Low collection objects,
+    then applies all modifiers.
     """
     print("=== Transfer UVs Started ===")
     
@@ -411,6 +412,7 @@ def transfer_uvs_main():
     
     success_count = 0
     failed_count = 0
+    objects_with_modifiers = []
     
     for high_obj in high.objects:
         if high_obj.type != 'MESH':
@@ -455,12 +457,32 @@ def transfer_uvs_main():
             dt.loop_mapping = 'POLYINTERP_NEAREST'
             
             print(f"Added Data Transfer modifier to '{high_name}' from '{low_name}'")
+            objects_with_modifiers.append(high_obj)
             success_count += 1
         except Exception as e:
             print(f"Failed to add Data Transfer modifier to '{high_name}': {e}")
             failed_count += 1
     
     print(f"Added Data Transfer modifiers to {success_count} object(s), failed on {failed_count}")
+    
+    # Apply all Data Transfer modifiers
+    print("Applying Data Transfer modifiers...")
+    applied_count = 0
+    apply_failed_count = 0
+    
+    for obj in objects_with_modifiers:
+        # Find and apply the Data Transfer modifier
+        for m in list(obj.modifiers):
+            if m.type == 'DATA_TRANSFER':
+                if apply_modifier_safe(obj, m.name):
+                    print(f"Applied Data Transfer modifier on '{obj.name}'")
+                    applied_count += 1
+                else:
+                    print(f"Failed to apply Data Transfer modifier on '{obj.name}'")
+                    apply_failed_count += 1
+                break
+    
+    print(f"Applied {applied_count} Data Transfer modifier(s), failed on {apply_failed_count}")
     print("=== Transfer UVs Finished ===")
 
 

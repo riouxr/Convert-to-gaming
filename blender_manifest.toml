@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "BB_Convert_to_Gaming"
-version = "2.1.4"
+version = "2.1.5"
 name = "BB Convert to Gaming"
 tagline = "Convert high-poly objects to optimized low-poly for gaming"
 maintainer = "Blender Bob and Claude.ai"
