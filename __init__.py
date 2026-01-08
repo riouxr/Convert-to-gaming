@@ -1,8 +1,8 @@
 bl_info = {
-    "name": "BB Convert to Gaming",
-    "author": "Blender Bob, Claude.ai",
-    "version": (2, 1, 5),
-    "blender": (4, 2, 0),
+    "name": "Convert to Gaming",
+    "author": "Your Name",
+    "version": (1, 3),
+    "blender": (2, 80, 0),
     "location": "View3D > UI > Tool",
     "description": "Converts high-poly objects to low-poly for gaming",
     "category": "Object",
@@ -10,44 +10,27 @@ bl_info = {
 
 import bpy
 import bmesh
-import re
 from math import radians, pi
 
-# Collection names for high-poly and low-poly objects
 HIGH_COLL = "High"
 LOW_COLL = "Low"
 
-# Constants for decimate and geometry operations
-PLANAR_ANGLE_DEGREES = 0.5  # Angle threshold for planar face decimation
-NGON_EDGE_THRESHOLD = 5     # Faces with more edges than this are considered ngons
-
+# ---------------------------------------------------
+# Helpers (with prints)
+# ---------------------------------------------------
 
 def ensure_collection(name):
-    """
-    Ensure a collection exists in the scene, creating it if necessary.
-    
-    Args:
-        name (str): Name of the collection to ensure exists
-        
-    Returns:
-        bpy.types.Collection: The collection object
-    """
     col = bpy.data.collections.get(name)
     if not col:
+        print(f"[COLLECTION] Creating collection '{name}'")
         col = bpy.data.collections.new(name)
         bpy.context.scene.collection.children.link(col)
-        print(f"Created collection '{name}'")
+    else:
+        print(f"[COLLECTION] Found collection '{name}'")
     return col
 
-
 def select_only(obj):
-    """
-    Select only the specified object and make it active.
-    Ensures object mode before selection.
-    
-    Args:
-        obj (bpy.types.Object): Object to select
-    """
+    # ensure object mode
     if bpy.context.view_layer.objects.active and bpy.context.view_layer.objects.active.mode != 'OBJECT':
         bpy.ops.object.mode_set(mode='OBJECT')
 
@@ -55,178 +38,186 @@ def select_only(obj):
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
 
-
 def apply_modifier_safe(obj, mod_name):
-    """
-    Safely apply a modifier to an object with error handling.
-    
-    Args:
-        obj (bpy.types.Object): Object containing the modifier
-        mod_name (str): Name of the modifier to apply
-        
-    Returns:
-        bool: True if successful, False otherwise
-    """
     select_only(obj)
     try:
         bpy.ops.object.modifier_apply(modifier=mod_name)
+        print(f"    [APPLY] Successfully applied modifier '{mod_name}' on '{obj.name}'")
         return True
     except Exception as e:
-        print(f"Failed to apply modifier '{mod_name}' on '{obj.name}': {e}")
+        print(f"    [APPLY] Failed to apply modifier '{mod_name}' on '{obj.name}': {e}")
         return False
 
-
-def remove_modifier_safe(obj, modifier):
-    """
-    Safely remove a modifier from an object with error handling.
-    
-    Args:
-        obj (bpy.types.Object): Object containing the modifier
-        modifier (bpy.types.Modifier): Modifier to remove
-        
-    Returns:
-        bool: True if successful, False otherwise
-    """
-    mod_name = modifier.name
+# safe remove that logs
+def remove_modifier_safe(obj, m):
+    # store name and type first
+    mod_name = m.name
+    mod_type = m.type
     try:
-        obj.modifiers.remove(modifier)
+        obj.modifiers.remove(m)
+        print(f"    [REMOVE] Removed modifier '{mod_name}' (type={mod_type}) from '{obj.name}'")
         return True
     except Exception as e:
-        print(f"Failed to remove modifier '{mod_name}' on '{obj.name}': {e}")
+        print(f"    [REMOVE] Failed to remove modifier '{mod_name}' on '{obj.name}': {e}")
         return False
 
+# ---------------------------------------------------
+# Processing for each Low object - Part 1: Prep modifiers without applying decimate
+# ---------------------------------------------------
 
 def process_low_prep(obj):
-    """
-    Prepare a low-poly object by removing/applying modifiers and adding decimate.
-    
-    Steps:
-    1. Rename object with "_low" suffix (removing _high and Blender auto-numbering)
-    2. Remove Subdivision Surface and Smooth modifiers
-    3. Apply ALL remaining modifiers
-    4. Add planar Decimate modifier
-    
-    Args:
-        obj (bpy.types.Object): Object to prepare
-    """
-    # Remove Blender's auto-numbering suffix (e.g., .001, .002)
-    name_without_number = re.sub(r'\.\d+$', '', obj.name)
-    
-    # Remove _high suffix if present
-    if name_without_number.endswith("_high"):
-        base_name = name_without_number[:-5]  # Remove "_high" (5 characters)
-    else:
-        base_name = name_without_number
-    
-    # Add _low suffix (only if not already present)
-    if not base_name.endswith("_low"):
-        obj.name = base_name + "_low"
+    print(f"\n=== Prepping object: '{obj.name}' ===")
 
-    # Remove Subsurf and Smooth modifiers (these add polygons)
+    # Rename
+    original_name = obj.name
+    if not obj.name.endswith("_low"):
+        obj.name = obj.name + "_low"
+        print(f"[RENAME] '{original_name}' -> '{obj.name}'")
+    else:
+        print(f"[RENAME] Already named '{obj.name}'")
+
+    # Print current modifiers
+    mods_before = [(m.name, m.type) for m in obj.modifiers]
+    print(f"[MODS] Before: {mods_before if mods_before else 'None'}")
+
+    # Remove Subsurf + Smooth
     for m in list(obj.modifiers):
         if m.type in {"SUBSURF", "SMOOTH"}:
             remove_modifier_safe(obj, m)
 
-    # Apply ALL remaining modifiers to bake their effects
-    for m in list(obj.modifiers):
-        mod_name = m.name
-        applied = apply_modifier_safe(obj, mod_name)
-        if not applied:
-            print(f"Could not apply modifier '{mod_name}' on '{obj.name}'")
+    # Show modifiers after removing subsurf/smooth
+    mods_mid = [(m.name, m.type) for m in obj.modifiers]
+    print(f"[MODS] After removing Subsurf/Smooth: {mods_mid if mods_mid else 'None'}")
 
-    # Remove any existing Decimate modifiers
+    # Apply Mirror + Bevel
     for m in list(obj.modifiers):
-        if m.type == 'DECIMATE':
-            remove_modifier_safe(obj, m)
+        if m.type in {"MIRROR", "BEVEL"}:
+            mod_name = m.name
+            print(f"    [APPLY_REQUEST] Applying {m.type} '{mod_name}' on '{obj.name}'")
+            applied = apply_modifier_safe(obj, mod_name)
+            if not applied:
+                print(f"    [APPLY_REQUEST] Could not apply '{mod_name}' — continuing")
 
-    # Add planar Decimate modifier to remove coplanar faces
+    # Show modifiers after applying Mirror+Bevel
+    mods_after_apply = [(m.name, m.type) for m in obj.modifiers]
+    print(f"[MODS] After applying Mirror/Bevel: {mods_after_apply if mods_after_apply else 'None'}")
+
+    # Remove ANY existing Decimate modifiers
+    decs = [m for m in list(obj.modifiers) if m.type == 'DECIMATE']
+    if decs:
+        print(f"[DECI] Found existing DECIMATE modifiers: {[(d.name, d.decimate_type if hasattr(d, 'decimate_type') else 'N/A') for d in decs]}")
+    for m in decs:
+        remove_modifier_safe(obj, m)
+
+    # Add fresh Planar Decimate (using 'DISSOLVE' for Blender 4.1+)
+    dec = None
     try:
         dec = obj.modifiers.new(name="DecimatePlanar", type="DECIMATE")
         dec.decimate_type = 'DISSOLVE'
-        dec.angle_limit = radians(PLANAR_ANGLE_DEGREES)  # Convert degrees to radians
-        dec.delimit = {'NORMAL'}  # Only dissolve faces with similar normals
+        dec.angle_limit = radians(0.5)
+        dec.delimit = {'NORMAL'}
+        print(f"[DECI] Added new DISSOLVE (Planar) decimate 'DecimatePlanar' on '{obj.name}' with angle_limit=0.5° and delimit=Normal")
     except Exception as e:
-        print(f"Failed to add Decimate modifier on '{obj.name}': {e}")
+        print(f"[DECI] Failed to add/set DISSOLVE decimate on '{obj.name}': {e}")
+        dec = None
 
+    # Do NOT apply here
+
+    # Final modifiers list after prep
+    mods_final = [(m.name, m.type) for m in obj.modifiers]
+    print(f"[MODS] Modifiers after prep on '{obj.name}': {mods_final if mods_final else 'None'}")
+
+# ---------------------------------------------------
+# Processing for each Low object - Part 2: Apply decimate
+# ---------------------------------------------------
 
 def process_low_apply_decimate(obj):
-    """
-    Apply the planar Decimate modifier to finalize geometry reduction.
-    
-    Args:
-        obj (bpy.types.Object): Object with Decimate modifier to apply
-    """
-    # Find and apply the DISSOLVE type decimate modifier
+    print(f"\n=== Applying decimate on object: '{obj.name}' ===")
+
+    # Find and apply the decimate modifier
+    dec_mod = None
     for m in obj.modifiers:
         if m.type == 'DECIMATE' and m.decimate_type == 'DISSOLVE':
-            apply_modifier_safe(obj, m.name)
-            return
-    
-    print(f"No DISSOLVE decimate modifier found on '{obj.name}'")
+            dec_mod = m
+            break
 
+    if dec_mod:
+        apply_modifier_safe(obj, dec_mod.name)
+    else:
+        print(f"[DECI] No DISSOLVE decimate modifier found on '{obj.name}' to apply")
+
+    # Final modifiers list after apply
+    mods_final = [(m.name, m.type) for m in obj.modifiers]
+    print(f"[MODS] Modifiers after applying decimate on '{obj.name}': {mods_final if mods_final else 'None'}")
+
+# ---------------------------------------------------
+# Add and apply Weighted Normal modifier
+# ---------------------------------------------------
 
 def add_apply_weighted_normal(obj):
-    """
-    Add and apply Weighted Normal modifier for improved shading on low-poly geometry.
-    
-    Weighted normals help preserve the appearance of smooth surfaces
-    even with reduced polygon counts.
-    
-    Args:
-        obj (bpy.types.Object): Object to add weighted normals to
-    """
-    # Remove any existing Weighted Normal modifiers
-    for m in list(obj.modifiers):
-        if m.type == 'WEIGHTED_NORMAL':
-            remove_modifier_safe(obj, m)
+    print(f"\n=== Adding and applying Weighted Normal on object: '{obj.name}' ===")
 
-    # Add and apply fresh Weighted Normal modifier
+    # Remove any existing Weighted Normal modifiers
+    wns = [m for m in list(obj.modifiers) if m.type == 'WEIGHTED_NORMAL']
+    if wns:
+        print(f"[WN] Found existing WEIGHTED_NORMAL modifiers: {[(wn.name) for wn in wns]}")
+    for m in wns:
+        remove_modifier_safe(obj, m)
+
+    # Add fresh Weighted Normal
+    wn = None
     try:
         wn = obj.modifiers.new(name="WeightedNormal", type="WEIGHTED_NORMAL")
-        wn.weight = 50  # Standard weight value
-        wn.keep_sharp = True  # Preserve sharp edges
-        apply_modifier_safe(obj, wn.name)
+        # Default settings are usually fine, but can adjust if needed
+        # e.g., wn.weight = 50  # default is 50
+        # wn.keep_sharp = True
+        print(f"[WN] Added new WEIGHTED_NORMAL 'WeightedNormal' on '{obj.name}'")
     except Exception as e:
-        print(f"Failed to add Weighted Normal on '{obj.name}': {e}")
+        print(f"[WN] Failed to add WEIGHTED_NORMAL on '{obj.name}': {e}")
+        wn = None
 
+    # Apply if added
+    if wn:
+        apply_modifier_safe(obj, wn.name)
+
+    # Final modifiers list after WN
+    mods_final = [(m.name, m.type) for m in obj.modifiers]
+    print(f"[MODS] Modifiers after WN on '{obj.name}': {mods_final if mods_final else 'None'}")
+
+# ---------------------------------------------------
+# Geometry Operations: Select Ngons > 5 edges (with logging)
+# ---------------------------------------------------
 
 def edit_triangulate_to_quads(obj):
-    """
-    Optimize mesh topology by triangulating large ngons and converting tris to quads.
-    
-    Process:
-    1. Find faces with more than NGON_EDGE_THRESHOLD edges (large ngons)
-    2. Triangulate those faces for stability
-    3. Convert all triangles back to quads where topology allows
-    
-    Args:
-        obj (bpy.types.Object): Mesh object to optimize
-    """
+
     if obj.type != 'MESH':
+        print(f"[GEOM] Skipping '{obj.name}' (not a mesh)")
         return
 
+    print(f"[GEOM] Starting geometry ops on '{obj.name}'")
     select_only(obj)
     try:
         bpy.ops.object.mode_set(mode='EDIT')
     except Exception as e:
-        print(f"Failed to enter Edit mode for '{obj.name}': {e}")
+        print(f"    [GEOM] Failed to enter EDIT mode for '{obj.name}': {e}")
         return
 
     bm = bmesh.from_edit_mesh(obj.data)
     bm.faces.ensure_lookup_table()
 
-    # Deselect all faces first
+    # Deselect all faces
     for f in bm.faces:
         f.select = False
 
-    # Select ngons with more than NGON_EDGE_THRESHOLD vertices
-    ngons = [f for f in bm.faces if len(f.verts) > NGON_EDGE_THRESHOLD]
+    # Select ngons with > 5 verts
+    ngons = [f for f in bm.faces if len(f.verts) > 5]
+    print(f"    [GEOM] Found {len(ngons)} ngon(s) (>5 edges) in '{obj.name}'")
     for f in ngons:
         f.select = True
 
     bmesh.update_edit_mesh(obj.data)
 
-    # Triangulate selected ngons using bmesh for stability
+    # Triangulate selected ngons using bmesh
     bm = bmesh.from_edit_mesh(obj.data)
     sel_faces = [f for f in bm.faces if f.select]
     if sel_faces:
@@ -237,306 +228,144 @@ def edit_triangulate_to_quads(obj):
                 quad_method='BEAUTY',
                 ngon_method='BEAUTY'
             )
+            print(f"    [GEOM] Triangulated {len(sel_faces)} selected face(s) on '{obj.name}'")
         except Exception as e:
-            print(f"Triangulation failed on '{obj.name}': {e}")
+            print(f"    [GEOM] bmesh triangulate failed on '{obj.name}': {e}")
+    else:
+        print(f"    [GEOM] No selected faces to triangulate on '{obj.name}'")
 
     bmesh.update_edit_mesh(obj.data)
 
-    # Select all faces for tris to quads conversion
+    # Select all faces for tris to quads
     try:
         bpy.ops.mesh.select_all(action='SELECT')
+        print(f"    [GEOM] Selected all faces for tris_convert_to_quads on '{obj.name}'")
     except Exception as e:
-        print(f"Failed to select all faces on '{obj.name}': {e}")
+        print(f"    [GEOM] Failed to select all on '{obj.name}': {e}")
 
-    # Convert triangles to quads where possible with relaxed thresholds
-    # Using pi (180°) for both thresholds allows maximum quad conversion
+    # Convert tris -> quads where possible, with relaxed thresholds and no limits
     try:
         bpy.ops.mesh.tris_convert_to_quads(
-            face_threshold=pi,      # Maximum angle difference between face normals
-            shape_threshold=pi,     # Maximum shape angle for quad formation
-            uvs=False,              # Ignore UV coordinates
-            vcols=False,            # Ignore vertex colors
-            seam=False,             # Ignore UV seams
-            sharp=False,            # Ignore sharp edges
-            materials=False         # Ignore material boundaries
+            face_threshold=pi,
+            shape_threshold=pi,
+            uvs=False,
+            vcols=False,
+            seam=False,
+            sharp=False,
+            materials=False
         )
+        print(f"    [GEOM] Ran tris_convert_to_quads on '{obj.name}' with relaxed parameters")
     except Exception as e:
-        print(f"Tris to quads conversion failed on '{obj.name}': {e}")
+        print(f"    [GEOM] tris_convert_to_quads failed on '{obj.name}': {e}")
 
-    # Return to object mode
     try:
         bpy.ops.object.mode_set(mode='OBJECT')
     except Exception as e:
-        print(f"Failed to exit Edit mode for '{obj.name}': {e}")
+        print(f"    [GEOM] Failed to exit EDIT mode for '{obj.name}': {e}")
 
-
-def add_high_suffix_main():
-    """
-    Add _high suffix to all objects in High collection.
-    
-    If object already ends with _high, it's skipped.
-    Otherwise, _high is appended to the current name.
-    """
-    print("=== Add _high Suffix Started ===")
-    
-    # Get High collection
-    high = bpy.data.collections.get(HIGH_COLL)
-    if not high:
-        print(f"ERROR: Collection '{HIGH_COLL}' not found. Please create a '{HIGH_COLL}' collection first.")
-        return
-    
-    renamed_count = 0
-    skipped_count = 0
-    
-    for obj in high.objects:
-        original_name = obj.name
-        
-        # Skip if already ends with _high
-        if obj.name.endswith("_high"):
-            skipped_count += 1
-            continue
-        
-        # Add _high suffix
-        obj.name = obj.name + "_high"
-        renamed_count += 1
-        print(f"Renamed: '{original_name}' → '{obj.name}'")
-    
-    print(f"Renamed {renamed_count} object(s), skipped {skipped_count} (already had _high suffix)")
-    print("=== Add _high Suffix Finished ===")
-
+# ---------------------------------------------------
+# Main for Convert: Dupe, prep modifiers, hide high
+# ---------------------------------------------------
 
 def convert_main():
-    """
-    Main function for Convert operation.
-    
-    Duplicates objects from High collection to Low collection,
-    prepares modifiers for low-poly conversion, and hides High collection.
-    """
-    print("=== Convert Started ===")
-    
-    # Get High collection
+    print("=== Convert started ===")
     high = bpy.data.collections.get(HIGH_COLL)
     if not high:
-        print(f"ERROR: Collection '{HIGH_COLL}' not found. Please create a '{HIGH_COLL}' collection with your high-poly objects.")
+        print(f"[ERROR] High collection '{HIGH_COLL}' not found. Aborting.")
         return
+    else:
+        print(f"[FOUND] High collection '{HIGH_COLL}' has {len(high.objects)} object(s).")
 
-    # Ensure Low collection exists
     low = ensure_collection(LOW_COLL)
 
-    # Duplicate objects from High to Low
+    # Duplicate objects from High → Low
     new_objects = []
     for src in high.objects:
+        print(f"[DUP] Duplicating '{src.name}'...")
         try:
             new_obj = src.copy()
             if src.data:
                 try:
                     new_obj.data = src.data.copy()
-                except Exception:
+                    print(f"    [DUP] Copied mesh/data for '{src.name}'")
+                except Exception as e:
                     new_obj.data = src.data
+                    print(f"    [DUP] Could not copy data for '{src.name}', linked instead: {e}")
             low.objects.link(new_obj)
             new_objects.append(new_obj)
+            print(f"    [DUP] Linked duplicate '{new_obj.name}' into '{LOW_COLL}'")
         except Exception as e:
-            print(f"Failed to duplicate '{src.name}': {e}")
+            print(f"    [DUP] Failed to duplicate '{src.name}': {e}")
 
-    print(f"Duplicated {len(new_objects)} object(s) to '{LOW_COLL}' collection")
+    print(f"[DUP] Completed duplication. {len(new_objects)} new object(s) in '{LOW_COLL}'.")
 
-    # Prepare modifiers on Low objects
+    # Prep modifiers on Low objects (without applying decimate)
     for obj in new_objects:
         process_low_prep(obj)
 
-    # Hide High collection
+    # Make High collection invisible
     try:
         high.hide_viewport = True
+        print(f"[HIDE] Set '{HIGH_COLL}' collection to invisible in viewport")
     except Exception as e:
-        print(f"Failed to hide '{HIGH_COLL}' collection: {e}")
+        print(f"[HIDE] Failed to hide '{HIGH_COLL}': {e}")
 
-    print("=== Convert Finished ===")
+    print("=== Convert finished ===")
 
+# ---------------------------------------------------
+# Main for Fix nGones: Apply decimate, geometry ops, weighted normal
+# ---------------------------------------------------
 
 def fix_ngons_main():
-    """
-    Main function for Fix nGones operation.
-    
-    Applies decimate modifier, optimizes mesh topology,
-    and adds weighted normals to all objects in Low collection.
-    """
-    print("=== Fix nGones Started ===")
-    
-    # Get Low collection
+    print("=== Fix nGones started ===")
     low = bpy.data.collections.get(LOW_COLL)
     if not low:
-        print(f"ERROR: Collection '{LOW_COLL}' not found. Run 'Convert' first.")
+        print(f"[ERROR] Low collection '{LOW_COLL}' not found. Aborting.")
         return
+    else:
+        print(f"[FOUND] Low collection '{LOW_COLL}' has {len(low.objects)} object(s).")
 
     low_objects = [obj for obj in low.objects if obj.type == 'MESH']
-    print(f"Processing {len(low_objects)} mesh object(s) in '{LOW_COLL}' collection")
 
-    # Apply decimate modifier
+    # Apply decimate on Low objects
     for obj in low_objects:
         process_low_apply_decimate(obj)
 
-    # Optimize geometry topology
+    # Geometry operations on Low objects
     for obj in low_objects:
         edit_triangulate_to_quads(obj)
 
-    # Add weighted normals for better shading
+    # Add and apply Weighted Normal on Low objects
     for obj in low_objects:
         add_apply_weighted_normal(obj)
 
-    print("=== Fix nGones Finished ===")
+    print("=== Fix nGones finished ===")
 
-
-def transfer_uvs_main():
-    """
-    Main function for Transfer UVs operation.
-    
-    Adds Data Transfer modifiers to all objects in High collection,
-    transferring UV data from corresponding Low collection objects,
-    then applies all modifiers.
-    """
-    print("=== Transfer UVs Started ===")
-    
-    # Get High and Low collections
-    high = bpy.data.collections.get(HIGH_COLL)
-    if not high:
-        print(f"ERROR: Collection '{HIGH_COLL}' not found.")
-        return
-    
-    low = bpy.data.collections.get(LOW_COLL)
-    if not low:
-        print(f"ERROR: Collection '{LOW_COLL}' not found. Run 'Convert' first.")
-        return
-    
-    # Create a lookup dictionary for Low collection objects
-    low_objects_dict = {obj.name: obj for obj in low.objects}
-    
-    success_count = 0
-    failed_count = 0
-    objects_with_modifiers = []
-    
-    for high_obj in high.objects:
-        if high_obj.type != 'MESH':
-            continue
-        
-        # Find corresponding low object
-        # Remove _high suffix and add _low suffix
-        high_name = high_obj.name
-        if high_name.endswith("_high"):
-            base_name = high_name[:-5]  # Remove "_high"
-            low_name = base_name + "_low"
-        else:
-            low_name = high_name + "_low"
-        
-        # Look for the low object
-        low_obj = low_objects_dict.get(low_name)
-        if not low_obj:
-            print(f"WARNING: Could not find matching low object '{low_name}' for '{high_name}'")
-            failed_count += 1
-            continue
-        
-        # Remove existing Data Transfer modifiers
-        for m in list(high_obj.modifiers):
-            if m.type == 'DATA_TRANSFER':
-                remove_modifier_safe(high_obj, m)
-        
-        # Add Data Transfer modifier
-        try:
-            dt = high_obj.modifiers.new(name="DataTransfer", type="DATA_TRANSFER")
-            dt.object = low_obj
-            
-            # Explicitly disable all data types first
-            dt.use_vert_data = False
-            dt.use_edge_data = False
-            dt.use_poly_data = False  # IMPORTANT: Disable Face Data
-            dt.use_loop_data = True   # Enable Face Corner Data only
-            
-            # Set to UV mode for Face Corner Data
-            dt.data_types_loops = {'UV'}
-            
-            # Set mapping to Nearest Face Interpolated (POLYINTERP_NEAREST)
-            dt.loop_mapping = 'POLYINTERP_NEAREST'
-            
-            print(f"Added Data Transfer modifier to '{high_name}' from '{low_name}'")
-            objects_with_modifiers.append(high_obj)
-            success_count += 1
-        except Exception as e:
-            print(f"Failed to add Data Transfer modifier to '{high_name}': {e}")
-            failed_count += 1
-    
-    print(f"Added Data Transfer modifiers to {success_count} object(s), failed on {failed_count}")
-    
-    # Apply all Data Transfer modifiers
-    print("Applying Data Transfer modifiers...")
-    applied_count = 0
-    apply_failed_count = 0
-    
-    for obj in objects_with_modifiers:
-        # Find and apply the Data Transfer modifier
-        for m in list(obj.modifiers):
-            if m.type == 'DATA_TRANSFER':
-                if apply_modifier_safe(obj, m.name):
-                    print(f"Applied Data Transfer modifier on '{obj.name}'")
-                    applied_count += 1
-                else:
-                    print(f"Failed to apply Data Transfer modifier on '{obj.name}'")
-                    apply_failed_count += 1
-                break
-    
-    print(f"Applied {applied_count} Data Transfer modifier(s), failed on {apply_failed_count}")
-    print("=== Transfer UVs Finished ===")
-
-
-class AddHighSuffixOperator(bpy.types.Operator):
-    """Add _high suffix to all objects in High collection"""
-    bl_idname = "object.add_high_suffix"
-    bl_label = "Add _High Suffix"
-    bl_description = "Add _high suffix to all objects in High collection"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-        add_high_suffix_main()
-        return {'FINISHED'}
-
-
+# Operator for Convert
 class ConvertOperator(bpy.types.Operator):
-    """Duplicate and prepare low-poly objects from High collection"""
     bl_idname = "object.convert_to_gaming"
     bl_label = "Convert"
-    bl_description = "Duplicate objects from High collection, prep for low-poly, and hide High collection"
+    bl_description = "Duplicate and prep low-poly objects, hide High"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         convert_main()
         return {'FINISHED'}
 
-
+# Operator for Fix nGones
 class FixNgonsOperator(bpy.types.Operator):
-    """Finalize low-poly geometry with decimate, topology optimization, and weighted normals"""
     bl_idname = "object.fix_ngons"
     bl_label = "Fix nGones"
-    bl_description = "Apply dissolve decimate, optimize topology, and add weighted normals to Low collection objects"
+    bl_description = "Apply dissolve decimate, fix ngons, and add/apply weighted normals on low-poly objects"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         fix_ngons_main()
         return {'FINISHED'}
 
-
-class TransferUVsOperator(bpy.types.Operator):
-    """Transfer UV data from Low collection to High collection objects"""
-    bl_idname = "object.transfer_uvs"
-    bl_label = "Transfer UVs"
-    bl_description = "Add Data Transfer modifiers to High collection objects to transfer UVs from Low collection"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-        transfer_uvs_main()
-        return {'FINISHED'}
-
-
+# Panel in the N-panel (UI sidebar)
 class ConvertToGamingPanel(bpy.types.Panel):
-    """Panel in the 3D Viewport sidebar for Convert to Gaming addon"""
-    bl_label = "BB Convert to Gaming"
+    bl_label = "Convert to Gaming"
     bl_idname = "VIEW3D_PT_convert_to_gaming"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -544,41 +373,18 @@ class ConvertToGamingPanel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        
-        # Instructions
-        box = layout.box()
-        box.label(text="1. Put high-poly objects in 'High' collection", icon='INFO')
-        box.label(text="2. Click 'Convert' to create low-poly versions")
-        box.label(text="3. Adjust Decimate Angle Limit if needed")
-        box.label(text="4. Click 'Fix nGones' to finalize geometry")
-        box.label(text="5. Click 'Transfer UVs' to copy UVs to High")
-        
-        layout.separator()
-        
-        # Main buttons
-        layout.operator(AddHighSuffixOperator.bl_idname, icon='SORTALPHA')
-        layout.operator(ConvertOperator.bl_idname, icon='DUPLICATE')
-        layout.operator(FixNgonsOperator.bl_idname, icon='MOD_DECIM')
-        layout.operator(TransferUVsOperator.bl_idname, icon='UV_DATA')
-
+        layout.operator(ConvertOperator.bl_idname)
+        layout.operator(FixNgonsOperator.bl_idname)
 
 def register():
-    """Register addon classes with Blender"""
-    bpy.utils.register_class(AddHighSuffixOperator)
     bpy.utils.register_class(ConvertOperator)
     bpy.utils.register_class(FixNgonsOperator)
-    bpy.utils.register_class(TransferUVsOperator)
     bpy.utils.register_class(ConvertToGamingPanel)
 
-
 def unregister():
-    """Unregister addon classes from Blender"""
     bpy.utils.unregister_class(ConvertToGamingPanel)
-    bpy.utils.unregister_class(TransferUVsOperator)
     bpy.utils.unregister_class(FixNgonsOperator)
     bpy.utils.unregister_class(ConvertOperator)
-    bpy.utils.unregister_class(AddHighSuffixOperator)
-
 
 if __name__ == "__main__":
     register()
